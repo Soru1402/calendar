@@ -1,3 +1,4 @@
+// Элементы страницы
 const calendarEl = document.getElementById('calendar');
 const monthYearEl = document.getElementById('monthYear');
 const prevMonthBtn = document.getElementById('prevMonth');
@@ -11,7 +12,7 @@ let allData = {}; // данные из Firebase
 // Ссылка на базу Firebase
 const dbRef = firebase.database().ref("calendarData");
 
-// Загружаем данные из Firebase
+// Загружаем данные из Firebase и слушаем изменения
 dbRef.on("value", snapshot => {
   allData = snapshot.val() || {};
   generateCalendar(currentDate);
@@ -33,31 +34,26 @@ const themes = {
   11: { bg: '#d9f0ff', title: 'Декабрь 🎄❄️', weekdayColor: '#0077cc', buttonColor: '#0077cc' }
 };
 
+// Применение темы
 function applyTheme(month) {
   const theme = themes[month] || { bg: '#fff', title: '', weekdayColor: '#000', buttonColor: '#000' };
   calendarContainer.style.background = theme.bg;
   calendarTitle.textContent = theme.title;
 
-  // Цвет дней недели
-  const weekdayEls = document.querySelectorAll('.weekday');
-  weekdayEls.forEach(el => el.style.background = theme.weekdayColor);
-
-  // Цвет кнопок
-  const addBtns = document.querySelectorAll('.add-btn');
-  addBtns.forEach(btn => btn.style.background = theme.buttonColor);
+  document.querySelectorAll('.weekday').forEach(el => el.style.background = theme.weekdayColor);
+  document.querySelectorAll('.add-btn').forEach(btn => btn.style.background = theme.buttonColor);
 }
 
+// Генерация календаря
 function generateCalendar(date) {
   calendarEl.innerHTML = '';
   const year = date.getFullYear();
   const month = date.getMonth();
   monthYearEl.textContent = `${date.toLocaleString('ru-RU', { month: 'long' })} ${year}`;
-
   applyTheme(month);
 
   const today = new Date();
   const key = `${year}-${month + 1}`;
-
   if (!allData[key]) allData[key] = {};
 
   const weekdays = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
@@ -76,34 +72,23 @@ function generateCalendar(date) {
   for (let i = 0; i < 35; i++, startDay++) {
     let cellDate, cellMonth, cellYear, isCurrentMonth;
     if (startDay < 1) {
-      cellMonth = month - 1;
-      cellYear = year;
+      cellMonth = month - 1; cellYear = year;
       if (cellMonth < 0) { cellMonth = 11; cellYear -= 1; }
-      const daysPrevMonth = new Date(cellYear, cellMonth + 1, 0).getDate();
-      cellDate = daysPrevMonth + startDay;
-      isCurrentMonth = false;
+      const prevDays = new Date(cellYear, cellMonth + 1, 0).getDate();
+      cellDate = prevDays + startDay; isCurrentMonth = false;
     } else if (startDay > daysInMonth) {
-      cellMonth = month + 1;
-      cellYear = year;
+      cellMonth = month + 1; cellYear = year;
       if (cellMonth > 11) { cellMonth = 0; cellYear += 1; }
-      cellDate = startDay - daysInMonth;
-      isCurrentMonth = false;
+      cellDate = startDay - daysInMonth; isCurrentMonth = false;
     } else {
-      cellMonth = month;
-      cellYear = year;
-      cellDate = startDay;
-      isCurrentMonth = true;
+      cellMonth = month; cellYear = year; cellDate = startDay; isCurrentMonth = true;
     }
 
+    const cellKey = `${cellYear}-${cellMonth + 1}`;
     const dayEl = document.createElement('div');
     dayEl.className = 'day';
-    if (!isCurrentMonth) dayEl.classList.add('other-month', 'disabled');
-    if (
-      isCurrentMonth &&
-      cellDate === today.getDate() &&
-      cellMonth === today.getMonth() &&
-      cellYear === today.getFullYear()
-    ) {
+    if (!isCurrentMonth) dayEl.classList.add('other-month','disabled');
+    if (isCurrentMonth && cellDate === today.getDate() && cellMonth === today.getMonth() && cellYear === today.getFullYear()) {
       dayEl.classList.add('today');
     }
 
@@ -111,17 +96,13 @@ function generateCalendar(date) {
     dayEl.dataset.month = cellMonth + 1;
     dayEl.dataset.year = cellYear;
 
-    dayEl.innerHTML = `
-      <strong>${cellDate}</strong>
-      <div class="activities"></div>
-      ${isCurrentMonth ? '<button class="add-btn">Добавить</button>' : ''}
-    `;
-
+    dayEl.innerHTML = `<strong>${cellDate}</strong><div class="activities"></div>${isCurrentMonth ? '<button class="add-btn">Добавить</button>' : ''}`;
     calendarEl.appendChild(dayEl);
 
-    const cellKey = `${cellYear}-${cellMonth + 1}`;
     const activitiesEl = dayEl.querySelector('.activities');
+    const activities = allData[cellKey]?.[cellDate] || [];
 
+    // Отображение активностей
     activities.forEach((act, index) => {
       const actEl = document.createElement('div');
       actEl.className = 'activity';
@@ -138,17 +119,21 @@ function generateCalendar(date) {
           act.done = !act.done;
           firebase.database().ref(`calendarData/${cellKey}/${cellDate}/${index}/done`).set(act.done);
         });
-        actEl.appendChild(delBtn);
+      }
 
-      // Удаление
+      // Кнопка удаления
       const delBtn = document.createElement('button');
       delBtn.textContent = '×';
       delBtn.className = 'del-btn';
       delBtn.addEventListener('click', () => {
-        activities.splice(index, 1);
-        firebase.database().ref(`calendarData/${cellKey}/${cellDate}`).set(activities);
+        const updated = [...activities];
+        updated.splice(index, 1);
+        firebase.database().ref(`calendarData/${cellKey}/${cellDate}`).set(updated);
       });
-    }
+      actEl.appendChild(delBtn);
+
+      activitiesEl.appendChild(actEl);
+    });
 
     // Добавление новой активности
     if (isCurrentMonth) {
@@ -157,21 +142,15 @@ function generateCalendar(date) {
       addBtn.addEventListener('click', () => {
         const name = prompt('Название активности:');
         if (name) {
-          if (!allData[cellKey][cellDate]) allData[cellKey][cellDate] = [];
-          const newAct = { name, done: false };
-          allData[cellKey][cellDate].push(newAct);
-          localStorage.setItem('calendarData', JSON.stringify(allData));
-          generateCalendar(currentDate);
+          const updated = [...activities, { name, done: false }];
+          firebase.database().ref(`calendarData/${cellKey}/${cellDate}`).set(updated);
         }
       });
     }
   }
-
-  const weekdayEls = document.querySelectorAll('.weekday');
-  weekdayEls.forEach(el => el.style.background = themes[month].weekdayColor);
 }
 
-// Смена месяца
+// Навигация по месяцам
 prevMonthBtn.addEventListener('click', () => {
   currentDate.setMonth(currentDate.getMonth() - 1);
   generateCalendar(currentDate);
