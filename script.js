@@ -6,9 +6,18 @@ const calendarContainer = document.getElementById('calendarContainer');
 const calendarTitle = document.getElementById('calendarTitle');
 
 let currentDate = new Date();
-let allData = JSON.parse(localStorage.getItem('calendarData')) || {};
+let allData = {}; // данные из Firebase
 
-// Темы для месяцев с цветами для шапки и кнопки
+// Ссылка на базу Firebase
+const dbRef = firebase.database().ref("calendarData");
+
+// Загружаем данные из Firebase
+dbRef.on("value", snapshot => {
+  allData = snapshot.val() || {};
+  generateCalendar(currentDate);
+});
+
+// Темы для месяцев
 const themes = {
   0: { bg: '#d9f0ff', title: 'Январь ❄️', weekdayColor: '#0077cc', buttonColor: '#0077cc' },
   1: { bg: '#ffd9e0', title: 'Февраль 💘', weekdayColor: '#cc0055', buttonColor: '#cc0055' },
@@ -48,6 +57,7 @@ function generateCalendar(date) {
 
   const today = new Date();
   const key = `${year}-${month + 1}`;
+
   if (!allData[key]) allData[key] = {};
 
   const weekdays = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
@@ -87,57 +97,60 @@ function generateCalendar(date) {
 
     const dayEl = document.createElement('div');
     dayEl.className = 'day';
-    if (!isCurrentMonth) dayEl.classList.add('other-month','disabled');
-    if (isCurrentMonth && cellDate === today.getDate() && cellMonth === today.getMonth() && cellYear === today.getFullYear()) {
+    if (!isCurrentMonth) dayEl.classList.add('other-month', 'disabled');
+    if (
+      isCurrentMonth &&
+      cellDate === today.getDate() &&
+      cellMonth === today.getMonth() &&
+      cellYear === today.getFullYear()
+    ) {
       dayEl.classList.add('today');
     }
+
     dayEl.dataset.day = cellDate;
     dayEl.dataset.month = cellMonth + 1;
     dayEl.dataset.year = cellYear;
-    dayEl.innerHTML = `<strong>${cellDate}</strong><div class="activities"></div>${isCurrentMonth ? '<button class="add-btn">Добавить</button>' : ''}`;
+
+    dayEl.innerHTML = `
+      <strong>${cellDate}</strong>
+      <div class="activities"></div>
+      ${isCurrentMonth ? '<button class="add-btn">Добавить</button>' : ''}
+    `;
+
     calendarEl.appendChild(dayEl);
 
     const cellKey = `${cellYear}-${cellMonth + 1}`;
     const activitiesEl = dayEl.querySelector('.activities');
 
-    if (allData[cellKey] && allData[cellKey][cellDate]) {
-      allData[cellKey][cellDate].forEach((act, index) => {
-        const actEl = document.createElement('div');
-        actEl.className = 'activity';
+    activities.forEach((act, index) => {
+      const actEl = document.createElement('div');
+      actEl.className = 'activity';
 
-        const textEl = document.createElement('span');
-        // Обрезка до 10 символов с многоточием
-        if (act.name.length > 10) {
-          textEl.textContent = act.name.slice(0, 10) + '…';
-        } else {
-          textEl.textContent = act.name;
-        }
-        textEl.title = act.name; // Полное название при наведении
-        if (act.done) textEl.classList.add('done');
-        actEl.appendChild(textEl);
+      const textEl = document.createElement('span');
+      textEl.textContent = act.name.length > 10 ? act.name.slice(0, 10) + '…' : act.name;
+      textEl.title = act.name;
+      if (act.done) textEl.classList.add('done');
+      actEl.appendChild(textEl);
 
-        if (isCurrentMonth) {
-          textEl.addEventListener('click', () => {
-            textEl.classList.toggle('done');
-            act.done = !act.done;
-            localStorage.setItem('calendarData', JSON.stringify(allData));
-          });
-        }
-
-        const delBtn = document.createElement('button');
-        delBtn.textContent = '×';
-        delBtn.className = 'del-btn';
-        delBtn.addEventListener('click', () => {
-          allData[cellKey][cellDate].splice(index, 1);
-          localStorage.setItem('calendarData', JSON.stringify(allData));
-          generateCalendar(currentDate);
+      // Отметка выполнения
+      if (isCurrentMonth) {
+        textEl.addEventListener('click', () => {
+          act.done = !act.done;
+          firebase.database().ref(`calendarData/${cellKey}/${cellDate}/${index}/done`).set(act.done);
         });
         actEl.appendChild(delBtn);
 
-        activitiesEl.appendChild(actEl);
+      // Удаление
+      const delBtn = document.createElement('button');
+      delBtn.textContent = '×';
+      delBtn.className = 'del-btn';
+      delBtn.addEventListener('click', () => {
+        activities.splice(index, 1);
+        firebase.database().ref(`calendarData/${cellKey}/${cellDate}`).set(activities);
       });
     }
 
+    // Добавление новой активности
     if (isCurrentMonth) {
       const addBtn = dayEl.querySelector('.add-btn');
       addBtn.style.background = themes[month].buttonColor;
@@ -158,8 +171,13 @@ function generateCalendar(date) {
   weekdayEls.forEach(el => el.style.background = themes[month].weekdayColor);
 }
 
-prevMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() - 1); generateCalendar(currentDate); });
-nextMonthBtn.addEventListener('click', () => { currentDate.setMonth(currentDate.getMonth() + 1); generateCalendar(currentDate); });
+// Смена месяца
+prevMonthBtn.addEventListener('click', () => {
+  currentDate.setMonth(currentDate.getMonth() - 1);
+  generateCalendar(currentDate);
+});
 
-generateCalendar(currentDate);
-
+nextMonthBtn.addEventListener('click', () => {
+  currentDate.setMonth(currentDate.getMonth() + 1);
+  generateCalendar(currentDate);
+});
